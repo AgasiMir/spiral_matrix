@@ -1,5 +1,12 @@
 import asyncio
-from aiohttp import ClientSession
+from aiohttp import (
+    ClientSession,
+    ClientConnectorError,
+    ClientResponseError,
+    ServerDisconnectedError,
+    ClientPayloadError,
+    ClientTimeout as AiohttpTimeout,
+)
 
 
 SOURSE_URL: str = (
