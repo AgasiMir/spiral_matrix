@@ -79,29 +79,27 @@ def make_matrix(data: str) -> list[list[int]]:
     return matrix
 
 
-async def fetch_matrix(url: str) -> str:
-    async with ClientSession() as session:
+async def fetch_matrix(session, url: str) -> str:
         async with session.get(url) as response:
             response_body: str = await response.text()
             return response_body
 
 
 async def get_matrix(url: str) -> list[int]:
-    """
-    Получает матрицу из URL и возвращает элементы в порядке
-    спирали против часовой стрелки.
+    async with ClientSession() as session:
+        response_body: str = await fetch_matrix(session,url)
 
-    Args:
-        url: URL для получения данных матрицы
+    # matrix и result нужно вынести из блока async with
+    # async with — это контекстный менеджер
+    # Он нужен только для выполнения асинхронного запроса (await fetch_matrix(...)).
 
-    Returns:
-        List[int]: Элементы матрицы в спиральном порядке
+    # make_matrix и spiral_counter_clockwise — синхронные функции
+    # Они не работают с сетью, не используют session, им не нужен ClientSession.
 
-    Example:
-        >>> result = await get_matrix("http://example.com/matrix")
-    """
+    # Сессия (session) должна быть закрыта как можно раньше
+    # После async with блока — сессия закрывается (соединения освобождаются).
+    # Это хорошая практика: не держать её дольше, чем нужно.
 
-    response_body: str = await fetch_matrix(url)
     matrix: list[list[int]] = make_matrix(response_body)
     result: list[int] = spiral_counter_clockwise(matrix)
 

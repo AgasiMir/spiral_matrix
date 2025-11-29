@@ -1,5 +1,6 @@
 from contextlib import nullcontext as does_not_raise
 
+import aiohttp
 import pytest
 
 from get_matrix import fetch_matrix
@@ -11,5 +12,6 @@ url: str = (
 
 @pytest.mark.asyncio
 async def test_fetch_matrix(url=url):
-    result = await fetch_matrix(url)
-    assert type(result) == str
+    async with aiohttp.ClientSession() as session:
+        result = await fetch_matrix(session,url)
+        assert type(result) == str
