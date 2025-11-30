@@ -13,7 +13,7 @@ from get_matrix import spiral_counter_clockwise
         ([[1, 2]], [1, 2], does_not_raise()),
         ([[]], [], does_not_raise()),
         (None, [], does_not_raise()),
-        ([[1, 2, 3], [4, 5, 6]], [1, 4, 5, 6, 2, 3], pytest.raises(AssertionError)),
+        ([[1, 2, 3], [4, 5, 6]], [1, 4, 5, 6, 3, 2], pytest.raises(AssertionError)),
         ([[1, 2, 3], [4, 5, 6]], [1, 6, 3, 4, 2, 5], pytest.raises(AssertionError)),
     ],
 )

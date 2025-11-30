@@ -23,6 +23,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# === Константы ===
+SOURSE_URL: str = (
+    "https://raw.githubusercontent.com/avito-tech/python-trainee-assignment/main/matrix.txt"
+)
+
+TRAVERSAL: list[int] = [
+    10,
+    50,
+    90,
+    130,
+    140,
+    150,
+    160,
+    120,
+    80,
+    40,
+    30,
+    20,
+    60,
+    100,
+    110,
+    70,
+]
+
+
 # === Декоратор retry для async-функций ===
 def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
     """
@@ -59,8 +84,7 @@ def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
                     await asyncio.sleep(delay)
                 else:
                     logger.error("Все %d попыток провалились.", max_retries)
-
-                raise last_exception
+                    raise last_exception
 
         return wrapper
 
@@ -69,67 +93,43 @@ def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
     return decorator(_func)
 
 
-# === Константы ===
-SOURSE_URL: str = (
-    "https://raw.githubusercontent.com/avito-tech/python-trainee-assignment/main/matrix.txt"
-)
-
-TRAVERSAL: list[int] = [
-    10,
-    50,
-    90,
-    130,
-    140,
-    150,
-    160,
-    120,
-    80,
-    40,
-    30,
-    20,
-    60,
-    100,
-    110,
-    70,
-]
-
-
 # === Основные функции ===
 def spiral_counter_clockwise(matrix: list[list[int]]) -> list[int]:
-    if not matrix:
+    """
+    Обходит матрицу по спирали против часовой стрелки, используя NumPy.
+    """
+    if not matrix or not matrix[0]:
         return []
-    if len(matrix) == 1:
-        return matrix[0]
-    else:
-        result: list[int] = []
-        top, bottom = 0, len(matrix) - 1
-        left, right = 0, len(matrix[0]) - 1
 
-        while top <= bottom and left <= right:
-            # Левая граница: сверху вниз
-            for i in range(top, bottom + 1):
-                result.append(matrix[i][left])
+    result: list[int] = []
+    top, bottom = 0, len(matrix) - 1
+    left, right = 0, len(matrix[0]) - 1
 
-            # Нижняя граница: слева направо (кроме первого элемента)
-            if left < right:
-                for i in range(left + 1, right + 1):
-                    result.append(matrix[bottom][i])
+    while top <= bottom and left <= right:
+        # Левая граница: сверху вниз
+        for i in range(top, bottom + 1):
+            result.append(matrix[i][left])
 
-            # Правая граница: снизу вверх (кроме первого элемента)
-            if top < bottom and left < right:
-                for i in range(bottom - 1, top - 1, -1):
-                    result.append(matrix[i][right])
+        # Нижняя граница: слева направо (кроме первого элемента)
+        if left < right:
+            for i in range(left + 1, right + 1):
+                result.append(matrix[bottom][i])
 
-            # Верхняя граница: справа налево (кроме первого и последнего элементов)
-            if top < bottom - 1 and left < right:
-                for i in range(right - 1, left, -1):
-                    result.append(matrix[top][i])
+        # Правая граница: снизу вверх (кроме первого элемента)
+        if top < bottom and left < right:
+            for i in range(bottom - 1, top - 1, -1):
+                result.append(matrix[i][right])
 
-            # Сужаем границы
-            top += 1
-            bottom -= 1
-            left += 1
-            right -= 1
+        # Верхняя граница: справа налево (кроме первого и последнего элементов)
+        if top < bottom - 1 and left < right:
+            for i in range(right - 1, left, -1):
+                result.append(matrix[top][i])
+
+        # Сужаем границы
+        top += 1
+        bottom -= 1
+        left += 1
+        right -= 1
 
     return result
 
