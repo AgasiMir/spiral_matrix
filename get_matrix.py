@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from aiohttp import (
     ClientSession,
     ClientConnectorError,
@@ -8,6 +9,18 @@ from aiohttp import (
     ClientTimeout as AiohttpTimeout,
 )
 
+
+# --- Настройка логирования ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler("matrix_app.log", encoding="utf-8"),
+        logging.StreamHandler(),  # вывод в консоль
+    ],
+)
+
+logger = logging.getLogger(__name__)
 
 SOURSE_URL: str = (
     "https://raw.githubusercontent.com/avito-tech/python-trainee-assignment/main/matrix.txt"
@@ -86,15 +99,60 @@ def make_matrix(data: str) -> list[list[int]]:
     return matrix
 
 
-async def fetch_matrix(session, url: str) -> str:
+async def fetch_matrix(session: ClientSession, url: str) -> str:
+    logger.info("Загрузка данных с %s", url)
+
+    try:
         async with session.get(url) as response:
-            response_body: str = await response.text()
-            return response_body
+            # Явно проверяем статус: 5xx — ошибка сервера, 4xx — клиентская ошибка
+            if 400 <= response.status < 600:
+                logger.error("Ошибка HTTP %d при запросе к %s", response.status, url)
+                raise ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=f"Ошибка HTTP {response.status}: сервер вернул ошибку",
+                )
+            return await response.text()
+
+    except asyncio.TimeoutError:
+        logger.error("Таймаут при запросе к %s", url)
+        raise TimeoutError(f"Превышен таймаут при запросе к {url}")
+
+    except ClientConnectorError as e:
+        logger.error("Не удалось подключиться к %s: %s", url, e)
+        raise ConnectionError(
+            f"Не удалось подключиться к {url}. Проверьте URL и соединение."
+        )
+
+    except ServerDisconnectedError:
+        logger.error("Сервер разорвал соединение с %s", url)
+        raise ConnectionError(f"Сервер разорвал соединение с {url}")
+
+    except ClientPayloadError as e:
+        logger.error("Неполный ответ от сервера %s: %s", url, e)
+        raise ConnectionError(
+            f"Ошибка при чтении данных от сервера {url}: неполный ответ."
+        )
+
+    except Exception as e:
+        logger.critical("Неожиданная ошибка при запросе к %s: %s", url, e)
+        raise RuntimeError(f"Неожиданная ошибка при запросе к {url}: {e}")
 
 
 async def get_matrix(url: str) -> list[int]:
-    async with ClientSession() as session:
-        response_body: str = await fetch_matrix(session,url)
+    """
+    Основная функция: загружает, парсит и обходит матрицу по спирали.
+    """
+
+    logger.info("Начало обработки матрицы по URL: %s", url)
+    timeout = AiohttpTimeout(total=10)  # 10 секунд на весь запрос
+    async with ClientSession(timeout=timeout) as session:
+        try:
+            response_body: str = await fetch_matrix(session, url)
+        except Exception as e:
+            logger.error("Ошибка при загрузке данных: %s", e)
+            raise  # Проброс исключения наверх
 
     # matrix и result нужно вынести из блока async with
     # async with — это контекстный менеджер
@@ -107,17 +165,28 @@ async def get_matrix(url: str) -> list[int]:
     # После async with блока — сессия закрывается (соединения освобождаются).
     # Это хорошая практика: не держать её дольше, чем нужно.
 
-    matrix: list[list[int]] = make_matrix(response_body)
-    result: list[int] = spiral_counter_clockwise(matrix)
-
-    return result
+    try:
+        matrix: list[list[int]] = make_matrix(response_body)
+        logger.info(
+            "Матрица успешно распаршена: %d×%d",
+            len(matrix),
+            len(matrix[0]) if matrix else 0)
+        result: list[int] = spiral_counter_clockwise(matrix)
+        logger.info("Спиральный обход завершён: %d элементов", len(result))
+        return result
+    except ValueError as e:
+        logger.error("Ошибка парсинга матрицы: %s", e)
+        raise ValueError(f"Ошибка при парсинге матрицы: {e}")
+    except Exception as e:
+        logger.error("Ошибка при обработке матрицы: %s", e)
+        raise RuntimeError(f"Ошибка при обработке матрицы: {e}")
 
 
 if __name__ == "__main__":
 
     async def main():
         res: list[int] = await get_matrix(SOURSE_URL)
-        print(res)
+        print(f"Рузультать обохода матрыицы по спирали: {res}")
 
     asyncio.run(main())
 
