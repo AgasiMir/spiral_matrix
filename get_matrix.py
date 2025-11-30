@@ -1,31 +1,78 @@
 import asyncio
 import logging
+from functools import wraps
+
 from aiohttp import (
     ClientSession,
-    ClientConnectorError,
     ClientResponseError,
+    ClientConnectorError,
     ServerDisconnectedError,
     ClientPayloadError,
     ClientTimeout as AiohttpTimeout,
 )
 
-
-# --- Настройка логирования ---
+# === Настройка логирования ===
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.FileHandler("matrix_app.log", encoding="utf-8"),
-        logging.StreamHandler(),  # вывод в консоль
+        logging.StreamHandler(),  # выводит логи и в консоль
     ],
 )
-
 logger = logging.getLogger(__name__)
 
+
+# === Декоратор retry для async-функций ===
+def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
+    """
+    Декоратор для повторных попыток вызова асинхронной функции.
+    Повторяет вызов при любых исключениях, с экспоненциальной задержкой.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except ClientResponseError as e:
+                    # Не повторяем клиентские ошибки (4xx), кроме 429
+                    if 400 <= e.status < 500 and e.status != 429:
+                        logger.warning("Клиентская ошибка %d — не повторяем", e.status)
+                        raise
+                    last_exception = e
+                except Exception as e:
+                    last_exception = e
+
+                logger.warning(
+                    "Попытка %d из %d не удалась: %s",
+                    attempt + 1,
+                    max_retries,
+                    last_exception,
+                )
+
+                if attempt < max_retries - 1:
+                    delay = backoff_factor * (2**attempt)
+                    logger.info("Ждём %.1f сек. перед повтором...", delay)
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error("Все %d попыток провалились.", max_retries)
+
+                raise last_exception
+
+        return wrapper
+
+    if _func is None:
+        return decorator
+    return decorator(_func)
+
+
+# === Константы ===
 SOURSE_URL: str = (
     "https://raw.githubusercontent.com/avito-tech/python-trainee-assignment/main/matrix.txt"
 )
-
 
 TRAVERSAL: list[int] = [
     10,
@@ -47,6 +94,7 @@ TRAVERSAL: list[int] = [
 ]
 
 
+# === Основные функции ===
 def spiral_counter_clockwise(matrix: list[list[int]]) -> list[int]:
     if not matrix:
         return []
@@ -87,6 +135,9 @@ def spiral_counter_clockwise(matrix: list[list[int]]) -> list[int]:
 
 
 def make_matrix(data: str) -> list[list[int]]:
+    """
+    Парсит строку с разделителями '|' и возвращает матрицу.
+    """
     numbers_and_lines: list[str] = [i.strip() for i in data.split("|")]
     lines: list[str] = [line for line in numbers_and_lines if not line.isdigit()]
     numbers: list[int] = [int(num) for num in numbers_and_lines if num.isdigit()]
@@ -99,97 +150,67 @@ def make_matrix(data: str) -> list[list[int]]:
     return matrix
 
 
+@retry(max_retries=3, backoff_factor=1.0)
 async def fetch_matrix(session: ClientSession, url: str) -> str:
-    logger.info("Загрузка данных с %s", url)
-
-    try:
-        async with session.get(url) as response:
-            # Явно проверяем статус: 5xx — ошибка сервера, 4xx — клиентская ошибка
-            if 400 <= response.status < 600:
-                logger.error("Ошибка HTTP %d при запросе к %s", response.status, url)
-                raise ClientResponseError(
-                    request_info=response.request_info,
-                    history=response.history,
-                    status=response.status,
-                    message=f"Ошибка HTTP {response.status}: сервер вернул ошибку",
-                )
-            return await response.text()
-
-    except asyncio.TimeoutError:
-        logger.error("Таймаут при запросе к %s", url)
-        raise TimeoutError(f"Превышен таймаут при запросе к {url}")
-
-    except ClientConnectorError as e:
-        logger.error("Не удалось подключиться к %s: %s", url, e)
-        raise ConnectionError(
-            f"Не удалось подключиться к {url}. Проверьте URL и соединение."
-        )
-
-    except ServerDisconnectedError:
-        logger.error("Сервер разорвал соединение с %s", url)
-        raise ConnectionError(f"Сервер разорвал соединение с {url}")
-
-    except ClientPayloadError as e:
-        logger.error("Неполный ответ от сервера %s: %s", url, e)
-        raise ConnectionError(
-            f"Ошибка при чтении данных от сервера {url}: неполный ответ."
-        )
-
-    except Exception as e:
-        logger.critical("Неожиданная ошибка при запросе к %s: %s", url, e)
-        raise RuntimeError(f"Неожиданная ошибка при запросе к {url}: {e}")
+    """
+    Загружает тело ответа по URL.
+    Использует retry при временных ошибках.
+    """
+    logger.info("Запрос к %s", url)
+    async with session.get(url) as response:
+        if 400 <= response.status < 600:
+            raise ClientResponseError(
+                request_info=response.request_info,
+                history=response.history,
+                status=response.status,
+                message=f"HTTP {response.status}: ошибка сервера или клиента",
+            )
+        text: str = await response.text()
+        logger.info("Успешно загружено %d символов", len(text))
+        return text
 
 
 async def get_matrix(url: str) -> list[int]:
     """
-    Основная функция: загружает, парсит и обходит матрицу по спирали.
+    Основная функция: загружает, парсит и обходит матрицу.
     """
-
-    logger.info("Начало обработки матрицы по URL: %s", url)
-    timeout = AiohttpTimeout(total=10)  # 10 секунд на весь запрос
+    logger.info("Начало обработки матрицы: %s", url)
+    timeout = AiohttpTimeout(total=10)
     async with ClientSession(timeout=timeout) as session:
         try:
-            response_body: str = await fetch_matrix(session, url)
+            response_body = await fetch_matrix(session, url)
         except Exception as e:
-            logger.error("Ошибка при загрузке данных: %s", e)
-            raise  # Проброс исключения наверх
-
-    # matrix и result нужно вынести из блока async with
-    # async with — это контекстный менеджер
-    # Он нужен только для выполнения асинхронного запроса (await fetch_matrix(...)).
-
-    # make_matrix и spiral_counter_clockwise — синхронные функции
-    # Они не работают с сетью, не используют session, им не нужен ClientSession.
-
-    # Сессия (session) должна быть закрыта как можно раньше
-    # После async with блока — сессия закрывается (соединения освобождаются).
-    # Это хорошая практика: не держать её дольше, чем нужно.
+            logger.error("Не удалось загрузить матрицу: %s", e)
+            raise
 
     try:
         matrix: list[list[int]] = make_matrix(response_body)
-        logger.info(
-            "Матрица успешно распаршена: %d×%d",
-            len(matrix),
-            len(matrix[0]) if matrix else 0)
+        logger.info("Матрица распаршена: %d×%d", len(matrix), len(matrix[0]))
         result: list[int] = spiral_counter_clockwise(matrix)
         logger.info("Спиральный обход завершён: %d элементов", len(result))
         return result
     except ValueError as e:
-        logger.error("Ошибка парсинга матрицы: %s", e)
+        logger.error("Ошибка при парсинге чисел: %s", e)
         raise ValueError(f"Ошибка при парсинге матрицы: {e}")
     except Exception as e:
         logger.error("Ошибка при обработке матрицы: %s", e)
         raise RuntimeError(f"Ошибка при обработке матрицы: {e}")
 
 
+# === Точка входа ===
 if __name__ == "__main__":
 
     async def main():
-        res: list[int] = await get_matrix(SOURSE_URL)
-        print(f"Рузультать обохода матрыицы по спирали: {res}")
+        try:
+            result: list[int] = await get_matrix(SOURSE_URL)
+            print("Результат:", result)
+            assert result == TRAVERSAL, f"Ожидалось {TRAVERSAL}, получено {result}"
+            print("✅ Тест пройден!")
+        except Exception as e:
+            logger.critical("Программа завершилась с ошибкой: %s", e)
+            print(f"❌ Ошибка: {e}")
 
     asyncio.run(main())
 
 
-__all__ = ["get_matrix", "spiral_counter_clockwise", "make_matrix"]
-# assert asyncio.run(get_matrix(SOURSE_URL)) == TRAVERSAL
+__all__: list[str] = ["get_matrix", "spiral_counter_clockwise", "make_matrix"]
