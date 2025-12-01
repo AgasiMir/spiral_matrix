@@ -11,7 +11,10 @@ from get_matrix import make_matrix
         ("- | 1 | 2 | - | 3 | 4 | -", [[1, 2], [3, 4]], does_not_raise()),
         ("-|1|2 | - | 3| 4 | -", [[1, 2], [3, 4]], does_not_raise()),
         ("-|1|2|3|-|4|5|6|-|7|8|9|-", [[1, 2, 3], [4, 5, 6], [7, 8, 9]], does_not_raise()),
-        ("-|1|2|3|4|-", [[1, 2], [3, 4]], pytest.raises(AssertionError)),
+        ("", [], pytest.raises(ValueError)),
+        ("------\n------", [], pytest.raises(ValueError)),
+        ("-|1|2|3|4|-", [[1, 2], [3, 4]], pytest.raises(ValueError)),
+        ("-|", [[1, 2], [3, 4]], pytest.raises(ValueError)),
     ],
 )
 def test_make_matrix(data, expected_result, exc):

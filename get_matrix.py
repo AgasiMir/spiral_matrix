@@ -14,17 +14,16 @@ from aiohttp import (
 # === Настройка логирования ===
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    format='%(asctime)s | %(levelname)s | %(message)s',
     handlers=[
-        logging.FileHandler("matrix_app.log", encoding="utf-8"),
-        logging.StreamHandler(),  # выводит логи и в консоль
-    ],
+        logging.StreamHandler(),
+        logging.FileHandler('matrix_processor.log', encoding='utf-8')
+    ]
 )
 logger = logging.getLogger(__name__)
 
-
 # === Константы ===
-SOURSE_URL: str = (
+SOURCE_URL: str = (
     "https://raw.githubusercontent.com/avito-tech/python-trainee-assignment/main/matrix.txt"
 )
 
@@ -47,44 +46,27 @@ TRAVERSAL: list[int] = [
     70,
 ]
 
-
 # === Декоратор retry для async-функций ===
-def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
+def retry(_func=None, *, max_retries: int = 3):
     """
     Декоратор для повторных попыток вызова асинхронной функции.
-    Повторяет вызов при любых исключениях, с экспоненциальной задержкой.
     """
-
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             last_exception = None
             for attempt in range(max_retries):
                 try:
+                    logger.info(f"Попытка {attempt + 1}/{max_retries} выполнения {func.__name__}")
                     return await func(*args, **kwargs)
-                except ClientResponseError as e:
-                    # Не повторяем клиентские ошибки (4xx), кроме 429
-                    if 400 <= e.status < 500 and e.status != 429:
-                        logger.warning("Клиентская ошибка %d — не повторяем", e.status)
-                        raise
-                    last_exception = e
                 except Exception as e:
                     last_exception = e
-
-                logger.warning(
-                    "Попытка %d из %d не удалась: %s",
-                    attempt + 1,
-                    max_retries,
-                    last_exception,
-                )
-
-                if attempt < max_retries - 1:
-                    delay = backoff_factor * (2**attempt)
-                    logger.info("Ждём %.1f сек. перед повтором...", delay)
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error("Все %d попыток провалились.", max_retries)
-                    raise last_exception
+                    logger.warning(f"Попытка {attempt + 1} из {max_retries} не удалась: {e}")
+                    if attempt == max_retries - 1:
+                        logger.error(f"Все {max_retries} попыток выполнения {func.__name__} завершились ошибкой")
+                        raise last_exception
+                    logger.info(f"Ждем {attempt + 1} сек. перед повтором...")  
+                    await asyncio.sleep(attempt + 1) # Задержка перед повторной попыткой
 
         return wrapper
 
@@ -92,125 +74,170 @@ def retry(_func=None, *, max_retries: int = 3, backoff_factor: float = 1.0):
         return decorator
     return decorator(_func)
 
-
 # === Основные функции ===
 def spiral_counter_clockwise(matrix: list[list[int]]) -> list[int]:
     """
-    Обходит матрицу по спирали против часовой стрелки, используя NumPy.
+    Обходит матрицу по спирали против часовой стрелки.
     """
-    if not matrix or not matrix[0]:
-        return []
+    try:
+        logger.info("Начало обхода матрицы по спирали")
+        
+        if not matrix or not matrix[0]:
+            logger.warning("Пустая матрица для обхода")
+            return []
 
-    result: list[int] = []
-    top, bottom = 0, len(matrix) - 1
-    left, right = 0, len(matrix[0]) - 1
+        result: list[int] = []
+        top, bottom = 0, len(matrix) - 1
+        left, right = 0, len(matrix[0]) - 1
 
-    while top <= bottom and left <= right:
-        # Левая граница: сверху вниз
-        for i in range(top, bottom + 1):
-            result.append(matrix[i][left])
+        logger.debug(f"Размер матрицы: {len(matrix)}x{len(matrix[0])}, границы: top={top}, bottom={bottom}, left={left}, right={right}")
 
-        # Нижняя граница: слева направо (кроме первого элемента)
-        if left < right:
-            for i in range(left + 1, right + 1):
-                result.append(matrix[bottom][i])
+        while top <= bottom and left <= right:
+            # Левая граница: сверху вниз
+            for i in range(top, bottom + 1):
+                result.append(matrix[i][left])
 
-        # Правая граница: снизу вверх (кроме первого элемента)
-        if top < bottom and left < right:
-            for i in range(bottom - 1, top - 1, -1):
-                result.append(matrix[i][right])
+            # Нижняя граница: слева направо (кроме первого элемента)
+            if left < right:
+                for i in range(left + 1, right + 1):
+                    result.append(matrix[bottom][i])
 
-        # Верхняя граница: справа налево (кроме первого и последнего элементов)
-        if top < bottom - 1 and left < right:
-            for i in range(right - 1, left, -1):
-                result.append(matrix[top][i])
+            # Правая граница: снизу вверх (кроме первого элемента)
+            if top < bottom and left < right:
+                for i in range(bottom - 1, top - 1, -1):
+                    result.append(matrix[i][right])
 
-        # Сужаем границы
-        top += 1
-        bottom -= 1
-        left += 1
-        right -= 1
+            # Верхняя граница: справа налево (кроме первого и последнего элементов)
+            if top < bottom - 1 and left < right:
+                for i in range(right - 1, left, -1):
+                    result.append(matrix[top][i])
 
-    return result
+            # Сужаем границы
+            top += 1
+            bottom -= 1
+            left += 1
+            right -= 1
 
+        logger.info(f"Успешный обход матрицы. Получено {len(result)} элементов")
+        logger.debug(f"Результат обхода: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Ошибка при обходе матрицы: {e}")
+        raise
 
 def make_matrix(data: str) -> list[list[int]]:
     """
     Парсит строку с разделителями '|' и возвращает матрицу.
     """
-    numbers_and_lines: list[str] = [i.strip() for i in data.split("|")]
-    lines: list[str] = [line for line in numbers_and_lines if not line.isdigit()]
-    numbers: list[int] = [int(num) for num in numbers_and_lines if num.isdigit()]
+    try:
+        logger.info("Начало парсинга матрицы из строки")
+        
+        if not data:
+            logger.error("Получены пустые данные для парсинга")
+            raise ValueError("Данные для парсинга не могут быть пустыми")
 
-    size: int = len(lines) - 1
+        numbers_and_lines: list[str] = [i.strip() for i in data.split("|")]
+        lines: list[str] = [line for line in numbers_and_lines if not line.isdigit()]
+        numbers: list[int] = [int(num) for num in numbers_and_lines if num.isdigit()]
 
-    # создание матрицы
-    matrix: list[list[int]] = [numbers[i * size : size + size * i] for i in range(size)]
+        if not numbers:
+            logger.error("Не найдены числа в данных для парсинга")
+            raise ValueError("Не удалось извлечь числа из данных")
 
-    return matrix
+        size: int = len(lines) - 1
 
+        if size <= 0:
+            logger.error(f"Некорректный размер матрицы: {size}")
+            raise ValueError("Некорректный размер матрицы")
 
-@retry(max_retries=3, backoff_factor=1.0)
+        # Проверяем, что количество чисел соответствует квадратной матрице
+        if len(numbers) != size * size:
+            logger.error(f"Количество чисел ({len(numbers)}) не соответствует размеру матрицы {size}x{size}")
+            raise ValueError("Некорректное количество элементов для формирования матрицы")
+
+        # создание матрицы
+        matrix: list[list[int]] = [numbers[i * size : size + size * i] for i in range(size)]
+
+        logger.info(f"Успешно создана матрица {size}x{size}")
+        logger.debug(f"Матрица: {matrix}")
+        return matrix
+
+    except ValueError as e:
+        logger.error(f"Ошибка преобразования данных в матрицу: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при создании матрицы: {e}")
+        raise
+
+@retry
 async def fetch_matrix(session: ClientSession, url: str) -> str:
     """
     Загружает тело ответа по URL.
     Использует retry при временных ошибках.
     """
-    logger.info("Запрос к %s", url)
-    async with session.get(url) as response:
-        if 400 <= response.status < 600:
-            raise ClientResponseError(
-                request_info=response.request_info,
-                history=response.history,
-                status=response.status,
-                message=f"HTTP {response.status}: ошибка сервера или клиента",
-            )
-        text: str = await response.text()
-        logger.info("Успешно загружено %d символов", len(text))
-        return text
+    try:
+        logger.info(f"Начало загрузки данных из {url}")
+        
+        async with session.get(url) as response:
+            response.raise_for_status()  # Проверяем статус ответа
+            text: str = await response.text()
+            
+            logger.info(f"Успешно загружены данные, размер: {len(text)} символов")
+            logger.debug(f"Первые 500 символов ответа: {text[:500]}...")
+            return text
 
+    except ClientResponseError as e:
+        logger.error(f"Ошибка HTTP {e.status} при запросе к {url}: {e}")
+        raise
+    except (ClientConnectorError, ServerDisconnectedError) as e:
+        logger.error(f"Ошибка соединения с {url}: {e}")
+        raise
+    except ClientPayloadError as e:
+        logger.error(f"Ошибка чтения данных с {url}: {e}")
+        raise
+    except asyncio.TimeoutError as e:
+        logger.error(f"Таймаут при запросе к {url}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при загрузке данных: {e}")
+        raise
 
 async def get_matrix(url: str) -> list[int]:
     """
     Основная функция: загружает, парсит и обходит матрицу.
     """
-    logger.info("Начало обработки матрицы: %s", url)
-    timeout = AiohttpTimeout(total=10)
-    async with ClientSession(timeout=timeout) as session:
+    logger.info(f"Запуск обработки матрицы из {url}")
+    async with ClientSession(timeout=AiohttpTimeout(total=3)) as session:
         try:
             response_body = await fetch_matrix(session, url)
+
+            if not response_body:
+                logger.error("Получен пустой ответ от сервера")
+                raise ValueError("Пустой ответ от сервера")
+
         except Exception as e:
-            logger.error("Не удалось загрузить матрицу: %s", e)
+            logger.error(f"Ошибка в основной функции get_matrix: {e}")
             raise
 
-    try:
-        matrix: list[list[int]] = make_matrix(response_body)
-        logger.info("Матрица распаршена: %d×%d", len(matrix), len(matrix[0]))
-        result: list[int] = spiral_counter_clockwise(matrix)
-        logger.info("Спиральный обход завершён: %d элементов", len(result))
-        return result
-    except ValueError as e:
-        logger.error("Ошибка при парсинге чисел: %s", e)
-        raise ValueError(f"Ошибка при парсинге матрицы: {e}")
-    except Exception as e:
-        logger.error("Ошибка при обработке матрицы: %s", e)
-        raise RuntimeError(f"Ошибка при обработке матрицы: {e}")
-
+    matrix: list[list[int]] = make_matrix(response_body)
+    result: list[int] = spiral_counter_clockwise(matrix)
+    
+    logger.info(f"Успешно завершена обработка матрицы. Результат содержит {len(result)} элементов")
+    return result
 
 # === Точка входа ===
 if __name__ == "__main__":
-
     async def main():
         try:
-            result: list[int] = await get_matrix(SOURSE_URL)
+            logger.info("Запуск приложения")
+            result: list[int] = await get_matrix(SOURCE_URL)
             print("Результат:", result)
-            assert result == TRAVERSAL, f"Ожидалось {TRAVERSAL}, получено {result}"
-            print("✅ Тест пройден!")
+            logger.info("Приложение успешно завершило работу")
         except Exception as e:
-            logger.critical("Программа завершилась с ошибкой: %s", e)
-            print(f"❌ Ошибка: {e}")
+            logger.critical(f"Критическая ошибка в приложении: {e}")
+            print("Произошла ошибка:", e)
 
     asyncio.run(main())
-
 
 __all__: list[str] = ["get_matrix", "spiral_counter_clockwise", "make_matrix"]
