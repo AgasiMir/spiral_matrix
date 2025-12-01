@@ -64,6 +64,7 @@ def retry(_func=None, *, max_retries: int = 3):
                     logger.warning(f"Попытка {attempt + 1} из {max_retries} не удалась: {e}")
                     if attempt == max_retries - 1:
                         logger.error(f"Все {max_retries} попыток выполнения {func.__name__} завершились ошибкой")
+                        logger.error({last_exception.__class__.__name__})
                         raise last_exception
                     logger.info(f"Ждем {attempt + 1} сек. перед повтором...")  
                     await asyncio.sleep(attempt + 1) # Задержка перед повторной попыткой
@@ -199,9 +200,9 @@ async def fetch_matrix(session: ClientSession, url: str) -> str:
     except asyncio.TimeoutError as e:
         logger.error(f"Таймаут при запросе к {url}: {e}")
         raise
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка при загрузке данных: {e}")
-        raise
+    # except Exception as e:
+    #     logger.error(f"Неожиданная ошибка при загрузке данных: {e}")
+    #     raise
 
 async def get_matrix(url: str) -> list[int]:
     """
