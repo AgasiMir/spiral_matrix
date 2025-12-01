@@ -209,7 +209,8 @@ async def get_matrix(url: str) -> list[int]:
     Основная функция: загружает, парсит и обходит матрицу.
     """
     logger.info(f"Запуск обработки матрицы из {url}")
-    async with ClientSession(timeout=AiohttpTimeout(total=3)) as session:
+    timeout=AiohttpTimeout(total=30, connect=10, sock_read=10, sock_connect=10)
+    async with ClientSession(timeout=timeout) as session:
         try:
             response_body = await fetch_matrix(session, url)
 
